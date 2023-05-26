@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Three.JS Demo</title>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<meta name="description" content="Three.JS Demo using Boolean calculation">
+	<style>
+	   body {
+		height: 100%;
+		width: 100%;
+		margin: 0px;
+		padding: 0px;
+		overflow: hidden;
+		position: absolute;
+		overflow-anchor: none;
+		}		
+	  .button {
+		position: absolute;
+		width: 100px;
+		height: 25px;
+		background-color: Black;
+		color: white;
+		text-align: center;
+		line-height: 25px;
+		cursor: pointer;
+		font-family: Arial;
+		border-radius: 10px;
+		border: 2px solid White;
+		transition-duration: 0.4s;
+		}
+		
+	  .button:hover {
+		background-color: White;
+		color: Black;
+		}
+		
+		#loadScene {
+			left: 20px;
+			top: 20px;
+		}	
+		
+		#saveScene {
+			left: 130px;
+			top: 20px;
+		}	
+		
+		#adjustCutter {
+			left: 240px;
+			top: 20px;
+		}
+		
+		#cutBone {
+			left: 350px;
+			top: 20px;
+		}	
+		
+		#exportModel {
+			left: 460px;
+			top: 20px;
+			width: 120px;
+		}			
+	
+	</style>
+	
+  </head>
+  <body>
+	<div id="container">
+		<div id="loadScene" class="button">Load Scene</div>
+		<div id="saveScene" class="button">Save Scene</div>
+		<div id="adjustCutter" class="button">Tool</div>
+		<div id="cutBone" class="button">Cut</div>
+		<div id="exportModel" class="button">Export Model</div>
+	</div>
+	
+    <script src="js/three.js"></script>
+	<script src="js/OrbitControls.js"></script>
+	<script src="js/download.js"></script>
+	<script type="module" src="./jsm/controls/TrackballControls.js"></script>
+	<script type="module" src="./jsm/loaders/OBJLoader.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/three@0.115/examples/js/loaders/GLTFLoader.js"></script>
+	
+	
+	<script type="module">
+	  import { STLExporter } from './js/exporters/STLExporter.js';
+	  import { GLTFExporter } from './js/exporters/GLTFExporter.js';
+	  import { GUI } from './jsm/libs/dat.gui.module.js';
+	  
+	  var container = document.getElementById('container');
+	  
+	  const sawGeometry = new THREE.BoxGeometry( 2, 0.05, 1 );
+	  const sawMaterial = new THREE.MeshPhongMaterial( { color: 0x5c5c00 } );
+	  const saw = new THREE.Mesh( sawGeometry, sawMaterial );
+	  
+	  var renderer, mesh, result;
+	  var xOffset, yOffset, zOffset, xAngle, yAngle, zAngle;
+	  var CHANGED = false;
+	  var LOADED = false;
+	  var READYCUT = false;
+	  var mouse = new THREE.Vector3();
+	  var scene = new THREE.Scene();
+	  var camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
+	  
+	  renderer = new THREE.WebGLRenderer();
+	  renderer.setSize( window.innerWidth, window.innerHeight );
+	  renderer.setClearColor( 0x263238 );
+	  container.appendChild(renderer.domElement);
+	  
+	  
+	  window.addEventListener('resize', function()
+	  {
+		var width = window.innerWidth;
+		var height = window.innerHeight;
+		renderer.setSize(width, height);
+		camera.aspect = width / height;
+		camera.updateProjectionMatrix();
+	  });
+	  
+	  var controls = new THREE.OrbitControls(camera, renderer.domElement);
+	  controls.enableDamping = true;
+	  controls.dampingFactor = 0.07;
+	 
+	 
+	//** Define the ThreeBSP function
+	//https://github.com/chandlerprall/ThreeCSG
+
+window.ThreeBSP = (function() {
+	
+	var ThreeBSP,
+		EPSILON = 1e-5,
+		COPLANAR = 0,
+		FRONT = 1,
+		BACK = 2,
+		SPANNING = 3;
+	
+	ThreeBSP = function( geometry ) {
+		// Convert THREE.Geometry to ThreeBSP
+		var i, _length_i,
+			face, vertex, faceVertexUvs, uvs,
+			polygon,
+			polygons = [],
+			tree;
+	
+		if ( geometry instanceof THREE.Geometry ) {
+			this.matrix = new THREE.Matrix4;
+		} else if ( geometry instanceof THREE.Mesh ) {
+			// #todo: add hierarchy support
+			geometry.updateMatrix();
+			this.matrix = geometry.matrix.clone();
+			geometry = geometry.geometry;
+		} else if ( geometry instanceof ThreeBSP.Node ) {
+			this.tree = geometry;
+			this.matrix = new THREE.Matrix4;
+			return this;
+		} else {
+			throw 'ThreeBSP: Given geometry is unsupported';
+		}
+	
+		for ( i = 0, _length_i = geometry.faces.length; i < _length_i; i++ ) {
+			face = geometry.faces[i];
+			faceVertexUvs = geometry.faceVertexUvs[0][i];
+			polygon = new ThreeBSP.Polygon;
+			
+			if ( face instanceof THREE.Face3 ) {
+				vertex = geometry.vertices[ face.a ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[0].x, faceVertexUvs[0].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[0], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+				
+				vertex = geometry.vertices[ face.b ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[1].x, faceVertexUvs[1].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[1], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+				
+				vertex = geometry.vertices[ face.c ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[2].x, faceVertexUvs[2].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[2], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+			} else if ( typeof THREE.Face4 ) {
+				vertex = geometry.vertices[ face.a ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[0].x, faceVertexUvs[0].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[0], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+				
+				vertex = geometry.vertices[ face.b ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[1].x, faceVertexUvs[1].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[1], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+				
+				vertex = geometry.vertices[ face.c ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[2].x, faceVertexUvs[2].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[2], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+				
+				vertex = geometry.vertices[ face.d ];
+                                uvs = faceVertexUvs ? new THREE.Vector2( faceVertexUvs[3].x, faceVertexUvs[3].y ) : null;
+                                vertex = new ThreeBSP.Vertex( vertex.x, vertex.y, vertex.z, face.vertexNormals[3], uvs );
+				vertex.applyMatrix4(this.matrix);
+				polygon.vertices.push( vertex );
+			} else {
+				throw 'Invalid face type at index ' + i;
+			}
+			
+			polygon.calculateProperties();
+			polygons.push( polygon );
+		};
+	
+		this.tree = new ThreeBSP.Node( polygons );
+	};
+	ThreeBSP.prototype.subtract = function( other_tree ) {
+		var a = this.tree.clone(),
+			b = other_tree.tree.clone();
+		
+		a.invert();
+		a.clipTo( b );
+		b.clipTo( a );
+		b.invert();
+		b.clipTo( a );
+		b.invert();
+		a.build( b.allPolygons() );
+		a.invert();
+		a = new ThreeBSP( a );
+		a.matrix = this.matrix;
+		return a;
+	};
+	ThreeBSP.prototype.union = function( other_tree ) {
+		var a = this.tree.clone(),
+			b = other_tree.tree.clone();
+		
+		a.clipTo( b );
+		b.clipTo( a );
+		b.invert();
+		b.clipTo( a );
+		b.invert();
+		a.build( b.allPolygons() );
+		a = new ThreeBSP( a );
+		a.matrix = this.matrix;
+		return a;
+	};
+	ThreeBSP.prototype.intersect = function( other_tree ) {
+		var a = this.tree.clone(),
+			b = other_tree.tree.clone();
+		
+		a.invert();
+		b.clipTo( a );
+		b.invert();
+		a.clipTo( b );
+		b.clipTo( a );
+		a.build( b.allPolygons() );
+		a.invert();
+		a = new ThreeBSP( a );
+		a.matrix = this.matrix;
+		return a;
+	};
+	ThreeBSP.prototype.toGeometry = function() {
+		var i, j,
+			matrix = new THREE.Matrix4().getInverse( this.matrix ),
+			geometry = new THREE.Geometry(),
+			polygons = this.tree.allPolygons(),
+			polygon_count = polygons.length,
+			polygon, polygon_vertice_count,
+			vertice_dict = {},
+			vertex_idx_a, vertex_idx_b, vertex_idx_c,
+			vertex, face,
+			verticeUvs;
+	
+		for ( i = 0; i < polygon_count; i++ ) {
+			polygon = polygons[i];
+			polygon_vertice_count = polygon.vertices.length;
+			
+			for ( j = 2; j < polygon_vertice_count; j++ ) {
+				verticeUvs = [];
+				
+				vertex = polygon.vertices[0];
+				verticeUvs.push( new THREE.Vector2( vertex.uv.x, vertex.uv.y ) );
+				vertex = new THREE.Vector3( vertex.x, vertex.y, vertex.z );
+				vertex.applyMatrix4(matrix);
+				
+				if ( typeof vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] !== 'undefined' ) {
+					vertex_idx_a = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ];
+				} else {
+					geometry.vertices.push( vertex );
+					vertex_idx_a = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] = geometry.vertices.length - 1;
+				}
+				
+				vertex = polygon.vertices[j-1];
+				verticeUvs.push( new THREE.Vector2( vertex.uv.x, vertex.uv.y ) );
+				vertex = new THREE.Vector3( vertex.x, vertex.y, vertex.z );
+				vertex.applyMatrix4(matrix);
+				if ( typeof vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] !== 'undefined' ) {
+					vertex_idx_b = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ];
+				} else {
+					geometry.vertices.push( vertex );
+					vertex_idx_b = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] = geometry.vertices.length - 1;
+				}
+				
+				vertex = polygon.vertices[j];
+				verticeUvs.push( new THREE.Vector2( vertex.uv.x, vertex.uv.y ) );
+				vertex = new THREE.Vector3( vertex.x, vertex.y, vertex.z );
+				vertex.applyMatrix4(matrix);
+				if ( typeof vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] !== 'undefined' ) {
+					vertex_idx_c = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ];
+				} else {
+					geometry.vertices.push( vertex );
+					vertex_idx_c = vertice_dict[ vertex.x + ',' + vertex.y + ',' + vertex.z ] = geometry.vertices.length - 1;
+				}
+				
+				face = new THREE.Face3(
+					vertex_idx_a,
+					vertex_idx_b,
+					vertex_idx_c,
+					new THREE.Vector3( polygon.normal.x, polygon.normal.y, polygon.normal.z )
+				);
+				
+				geometry.faces.push( face );
+				geometry.faceVertexUvs[0].push( verticeUvs );
+			}
+			
+		}
+		return geometry;
+	};
+	ThreeBSP.prototype.toMesh = function( material ) {
+		var geometry = this.toGeometry(),
+			mesh = new THREE.Mesh( geometry, material );
+		
+		mesh.position.setFromMatrixPosition( this.matrix );
+		mesh.rotation.setFromRotationMatrix( this.matrix );
+		
+		return mesh;
+	};
+	
+	
+	ThreeBSP.Polygon = function( vertices, normal, w ) {
+		if ( !( vertices instanceof Array ) ) {
+			vertices = [];
+		}
+		
+		this.vertices = vertices;
+		if ( vertices.length > 0 ) {
+			this.calculateProperties();
+		} else {
+			this.normal = this.w = undefined;
+		}
+	};
+	ThreeBSP.Polygon.prototype.calculateProperties = function() {
+		var a = this.vertices[0],
+			b = this.vertices[1],
+			c = this.vertices[2];
+			
+		this.normal = b.clone().subtract( a ).cross(
+			c.clone().subtract( a )
+		).normalize();
+		
+		this.w = this.normal.clone().dot( a );
+		
+		return this;
+	};
+	ThreeBSP.Polygon.prototype.clone = function() {
+		var i, vertice_count,
+			polygon = new ThreeBSP.Polygon;
+		
+		for ( i = 0, vertice_count = this.vertices.length; i < vertice_count; i++ ) {
+			polygon.vertices.push( this.vertices[i].clone() );
+		};
+		polygon.calculateProperties();
+		
+		return polygon;
+	};
+	
+	ThreeBSP.Polygon.prototype.flip = function() {
+		var i, vertices = [];
+		
+		this.normal.multiplyScalar( -1 );
+		this.w *= -1;
+		
+		for ( i = this.vertices.length - 1; i >= 0; i-- ) {
+			vertices.push( this.vertices[i] );
+		};
+		this.vertices = vertices;
+		
+		return this;
+	};
+	ThreeBSP.Polygon.prototype.classifyVertex = function( vertex ) {  
+		var side_value = this.normal.dot( vertex ) - this.w;
+		
+		if ( side_value < -EPSILON ) {
+			return BACK;
+		} else if ( side_value > EPSILON ) {
+			return FRONT;
+		} else {
+			return COPLANAR;
+		}
+	};
+	ThreeBSP.Polygon.prototype.classifySide = function( polygon ) {
+		var i, vertex, classification,
+			num_positive = 0,
+			num_negative = 0,
+			vertice_count = polygon.vertices.length;
+		
+		for ( i = 0; i < vertice_count; i++ ) {
+			vertex = polygon.vertices[i];
+			classification = this.classifyVertex( vertex );
+			if ( classification === FRONT ) {
+				num_positive++;
+			} else if ( classification === BACK ) {
+				num_negative++;
+			}
+		}
+		
+		if ( num_positive > 0 && num_negative === 0 ) {
+			return FRONT;
+		} else if ( num_positive === 0 && num_negative > 0 ) {
+			return BACK;
+		} else if ( num_positive === 0 && num_negative === 0 ) {
+			return COPLANAR;
+		} else {
+			return SPANNING;
+		}
+	};
+	ThreeBSP.Polygon.prototype.splitPolygon = function( polygon, coplanar_front, coplanar_back, front, back ) {
+		var classification = this.classifySide( polygon );
+		
+		if ( classification === COPLANAR ) {
+			
+			( this.normal.dot( polygon.normal ) > 0 ? coplanar_front : coplanar_back ).push( polygon );
+			
+		} else if ( classification === FRONT ) {
+			
+			front.push( polygon );
+			
+		} else if ( classification === BACK ) {
+			
+			back.push( polygon );
+			
+		} else {
+			
+			var vertice_count,
+				i, j, ti, tj, vi, vj,
+				t, v,
+				f = [],
+				b = [];
+			
+			for ( i = 0, vertice_count = polygon.vertices.length; i < vertice_count; i++ ) {
+				
+				j = (i + 1) % vertice_count;
+				vi = polygon.vertices[i];
+				vj = polygon.vertices[j];
+				ti = this.classifyVertex( vi );
+				tj = this.classifyVertex( vj );
+				
+				if ( ti != BACK ) f.push( vi );
+				if ( ti != FRONT ) b.push( vi );
+				if ( (ti | tj) === SPANNING ) {
+					t = ( this.w - this.normal.dot( vi ) ) / this.normal.dot( vj.clone().subtract( vi ) );
+					v = vi.interpolate( vj, t );
+					f.push( v );
+					b.push( v );
+				}
+			}
+			
+			
+			if ( f.length >= 3 ) front.push( new ThreeBSP.Polygon( f ).calculateProperties() );
+			if ( b.length >= 3 ) back.push( new ThreeBSP.Polygon( b ).calculateProperties() );
+		}
+	};
+	
+	ThreeBSP.Vertex = function( x, y, z, normal, uv ) {
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		this.normal = normal || new THREE.Vector3;
+		this.uv = uv || new THREE.Vector2;
+	};
+	ThreeBSP.Vertex.prototype.clone = function() {
+		return new ThreeBSP.Vertex( this.x, this.y, this.z, this.normal.clone(), this.uv.clone() );
+	};
+	ThreeBSP.Vertex.prototype.add = function( vertex ) {
+		this.x += vertex.x;
+		this.y += vertex.y;
+		this.z += vertex.z;
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.subtract = function( vertex ) {
+		this.x -= vertex.x;
+		this.y -= vertex.y;
+		this.z -= vertex.z;
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.multiplyScalar = function( scalar ) {
+		this.x *= scalar;
+		this.y *= scalar;
+		this.z *= scalar;
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.cross = function( vertex ) {
+		var x = this.x,
+			y = this.y,
+			z = this.z;
+
+		this.x = y * vertex.z - z * vertex.y;
+		this.y = z * vertex.x - x * vertex.z;
+		this.z = x * vertex.y - y * vertex.x;
+		
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.normalize = function() {
+		var length = Math.sqrt( this.x * this.x + this.y * this.y + this.z * this.z );
+		
+		this.x /= length;
+		this.y /= length;
+		this.z /= length;
+		
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.dot = function( vertex ) {
+		return this.x * vertex.x + this.y * vertex.y + this.z * vertex.z;
+	};
+	ThreeBSP.Vertex.prototype.lerp = function( a, t ) {
+		this.add(
+			a.clone().subtract( this ).multiplyScalar( t )
+		);
+		
+		this.normal.add(
+			a.normal.clone().sub( this.normal ).multiplyScalar( t )
+		);
+		
+		this.uv.add(
+			a.uv.clone().sub( this.uv ).multiplyScalar( t )
+		);
+		
+		return this;
+	};
+	ThreeBSP.Vertex.prototype.interpolate = function( other, t ) {
+		return this.clone().lerp( other, t );
+	};
+	ThreeBSP.Vertex.prototype.applyMatrix4 = function ( m ) {
+
+		// input: THREE.Matrix4 affine matrix
+
+		var x = this.x, y = this.y, z = this.z;
+
+		var e = m.elements;
+
+		this.x = e[0] * x + e[4] * y + e[8]  * z + e[12];
+		this.y = e[1] * x + e[5] * y + e[9]  * z + e[13];
+		this.z = e[2] * x + e[6] * y + e[10] * z + e[14];
+
+		return this;
+
+	}
+	
+	
+	ThreeBSP.Node = function( polygons ) {
+		var i, polygon_count,
+			front = [],
+			back = [];
+
+		this.polygons = [];
+		this.front = this.back = undefined;
+		
+		if ( !(polygons instanceof Array) || polygons.length === 0 ) return;
+
+		this.divider = polygons[0].clone();
+		
+		for ( i = 0, polygon_count = polygons.length; i < polygon_count; i++ ) {
+			this.divider.splitPolygon( polygons[i], this.polygons, this.polygons, front, back );
+		}   
+		
+		if ( front.length > 0 ) {
+			this.front = new ThreeBSP.Node( front );
+		}
+		
+		if ( back.length > 0 ) {
+			this.back = new ThreeBSP.Node( back );
+		}
+	};
+	ThreeBSP.Node.isConvex = function( polygons ) {
+		var i, j;
+		for ( i = 0; i < polygons.length; i++ ) {
+			for ( j = 0; j < polygons.length; j++ ) {
+				if ( i !== j && polygons[i].classifySide( polygons[j] ) !== BACK ) {
+					return false;
+				}
+			}
+		}
+		return true;
+	};
+	ThreeBSP.Node.prototype.build = function( polygons ) {
+		var i, polygon_count,
+			front = [],
+			back = [];
+		
+		if ( !this.divider ) {
+			this.divider = polygons[0].clone();
+		}
+
+		for ( i = 0, polygon_count = polygons.length; i < polygon_count; i++ ) {
+			this.divider.splitPolygon( polygons[i], this.polygons, this.polygons, front, back );
+		}   
+		
+		if ( front.length > 0 ) {
+			if ( !this.front ) this.front = new ThreeBSP.Node();
+			this.front.build( front );
+		}
+		
+		if ( back.length > 0 ) {
+			if ( !this.back ) this.back = new ThreeBSP.Node();
+			this.back.build( back );
+		}
+	};
+	ThreeBSP.Node.prototype.allPolygons = function() {
+		var polygons = this.polygons.slice();
+		if ( this.front ) polygons = polygons.concat( this.front.allPolygons() );
+		if ( this.back ) polygons = polygons.concat( this.back.allPolygons() );
+		return polygons;
+	};
+	ThreeBSP.Node.prototype.clone = function() {
+		var node = new ThreeBSP.Node();
+		
+		node.divider = this.divider.clone();
+		node.polygons = this.polygons.map( function( polygon ) { return polygon.clone(); } );
+		node.front = this.front && this.front.clone();
+		node.back = this.back && this.back.clone();
+		
+		return node;
+	};
+	ThreeBSP.Node.prototype.invert = function() {
+		var i, polygon_count, temp;
+		
+		for ( i = 0, polygon_count = this.polygons.length; i < polygon_count; i++ ) {
+			this.polygons[i].flip();
+		}
+		
+		this.divider.flip();
+		if ( this.front ) this.front.invert();
+		if ( this.back ) this.back.invert();
+		
+		temp = this.front;
+		this.front = this.back;
+		this.back = temp;
+		
+		return this;
+	};
+	ThreeBSP.Node.prototype.clipPolygons = function( polygons ) {
+		var i, polygon_count,
+			front, back;
+
+		if ( !this.divider ) return polygons.slice();
+		
+		front = [], back = [];
+		
+		for ( i = 0, polygon_count = polygons.length; i < polygon_count; i++ ) {
+			this.divider.splitPolygon( polygons[i], front, back, front, back );
+		}
+
+		if ( this.front ) front = this.front.clipPolygons( front );
+		if ( this.back ) back = this.back.clipPolygons( back );
+		else back = [];
+
+		return front.concat( back );
+	};
+	
+	ThreeBSP.Node.prototype.clipTo = function( node ) {
+		this.polygons = node.clipPolygons( this.polygons );
+		if ( this.front ) this.front.clipTo( node );
+		if ( this.back ) this.back.clipTo( node );
+	};
+	
+	
+	return ThreeBSP;
+})();
+
+		
+		// Add the axesHelper to the scene
+		const axesHelper = new THREE.AxesHelper(0.5);
+		axesHelper.position.y = 1.5;
+		scene.add(axesHelper);
+		
+		
+		// User interface (GUI)
+		var gui = new GUI();
+		
+		var posSpeed = 0.1;
+		var angSpeed = 1;
+		
+		xOffset = 0;
+		yOffset = 0;
+		zOffset = 0;
+		
+		xAngle = 0;
+		yAngle = 0;
+		zAngle = 0;
+		
+		
+		var params = {
+			animate: false,
+			a: 0,	// x-position
+			b: 0,	// y-position
+			c: 0,	// z-position
+			d: 0,	// x-rotation
+			e: 0,	// y-rotation
+			f: 0,	// z-rotation
+		}
+		
+		gui.add(params, 'animate');
+		
+		var pos = gui.addFolder('Saw Position');
+		
+		var xPos = pos.add(params, 'a').min(-2.0).max(2.0).step(posSpeed).name('X-Axis');
+		var yPos = pos.add(params, 'b').min(-2.0).max(2.0).step(posSpeed).name('Y-Axis');
+		var zPos = pos.add(params, 'c').min(-2.0).max(2.0).step(posSpeed).name('Z-Axis');
+		
+		xPos.onChange(function(p) {
+			saw.position.x = p;
+			xOffset = p;	// Assign the position value for geometry.translate() to use
+			}
+		);
+		
+		yPos.onChange(function(p) {
+			saw.position.y = p;
+			yOffset = p;
+			}
+		);
+		
+		zPos.onChange(function(p) {
+			saw.position.z = p;
+			zOffset = p;
+			}
+		);		
+		
+		var ang = gui.addFolder('Saw Angle');
+		
+		var xRot = ang.add(params, 'd').min(-90).max(90).step(angSpeed).name('X-Angle');
+		var yRot = ang.add(params, 'e').min(-90).max(90).step(angSpeed).name('Y-Angle');
+		var zRot = ang.add(params, 'f').min(-90).max(90).step(angSpeed).name('Z-Angle');
+		
+		xRot.onChange(function(r) {
+			
+			sawGeometry.rotateX( (r / 180) * Math.PI );
+			xAngle = r;
+			}
+		);
+		
+		yRot.onChange(function(r) {
+			
+			sawGeometry.rotateY( (r / 180) * Math.PI );
+			yAngle = r;
+			}
+		);
+		
+		zRot.onChange(function(r) {
+			
+			sawGeometry.rotateZ( (r / 180) * Math.PI );
+			zAngle = r;
+			}
+		);
+		
+		
+		gui.open();
+		pos.open();
+		ang.open();
+		
+		
+		// Load a 3D model of the tibia in glTF format
+		var loader = new THREE.GLTFLoader();
+		var model = new THREE.Object3D();
+
+		
+		function booleanCut() {	// Split the tibia using Boolean calculation
+				
+			// Create the corresponding BSP geometry before Boolean operation
+			var bone = new ThreeBSP(mesh.geometry);
+			var tool = new ThreeBSP(sawGeometry);
+				
+			// Perform Boolean operation
+			var cutBone = bone.subtract(tool);
+			//var cutBone = bone.intersect(tool);
+			//var cutBone = bone.union(tool);
+				
+			result = cutBone.toMesh(mesh.material);
+			
+			mesh.visible = false;
+			saw.visible = false;
+				
+			scene.add(result);
+			alert("Cutting finished!");
+			
+		}
+		
+
+		document.getElementById("loadScene").addEventListener("click", loadScene);
+		document.getElementById("saveScene").addEventListener("click", saveScene);
+		document.getElementById("adjustCutter").addEventListener("click", adjustCutter);
+		document.getElementById("cutBone").addEventListener("click", cutBone);
+		document.getElementById("exportModel").addEventListener("click", exportModel);
+				
+		
+		function loadScene() {
+		
+			if ( result ) {
+				removeObject();	// Remove the previously loaded 3D model
+				resetParam();	// Reset all parameters before loading a new scene
+			}
+			
+			loader.load (
+			
+				'./scene_original_gltf.gltf',
+			
+				function(gltf)
+				{
+					scene.add(gltf.scene);
+					model = gltf.scene;
+					mesh = gltf.scene.children[0];
+					
+					console.log("children is", gltf.scene.children);
+					
+					model.traverse
+					( function ( child ) 
+						{
+							
+							if ( child.isMesh && child.geometry.isBufferGeometry) 
+							{ 
+								const bg = child.geometry;
+								child.geometry = (new THREE.Geometry()).fromBufferGeometry(bg);
+								
+							}
+						}  
+					);
+					
+				});
+			
+			LOADED = true;
+		}
+		
+		
+		function removeObject() {
+		
+			const objToRemove = scene.getObjectByName( "result" );
+			scene.remove(objToRemove);
+			animate();
+			
+			alert("Previous model removed.");
+		
+		}
+		
+		
+		function resetParam() {
+		
+			CHANGED = false;
+			LOADED = false;
+			READYCUT = false;
+		
+		}
+		
+		
+		function saveScene() {
+		
+			if ( ! LOADED ) {
+			
+				alert("No scene/model found. Please load a scene/model first");
+				
+				return;
+			
+			}
+			
+			if ( ! result ) {
+			
+				alert("Please perform cutting first.");
+				return;
+			}
+		
+			const exporter = new GLTFExporter();
+			
+			const options = {
+				trs: false,
+				onlyVisible: true,
+				truncateDrawRange: true,
+				binary: false,
+				maxTextureSize: Infinity
+			};
+			
+			// Change geometry back to buffer geometry or otherwise exporter will fail
+			if ( ! CHANGED ) {
+				result.geometry = new THREE.BufferGeometry().fromGeometry(result.geometry);
+				
+				CHANGED = true;
+			}
+			
+			exporter.parse( result, function ( sceneToSave) {
+
+				if ( sceneToSave instanceof ArrayBuffer ) {
+					
+					saveArrayBuffer( sceneToSave, 'scene.glb' );
+
+				} else {
+					
+					const output = JSON.stringify( sceneToSave, null, 2 );
+					console.log( output );
+					saveString( output, 'scene.gltf' );
+
+				}
+
+			}, options );			
+
+		}	
+
+		function saveString( text, filename ) {
+
+			save( new Blob( [ text ], { type: 'text/plain' } ), filename );
+
+		}
+		
+		
+		function adjustCutter(){ // Show the thin block cube as the cutting "saw"
+			
+			if ( ! LOADED ) {
+			
+				alert("No model loaded! Please load a model.");
+				return;
+			}
+			
+			scene.add( saw );
+			READYCUT = true;
+			
+		}
+
+		function cutBone() {	// Cut the tibia according to position and angle specified in UI
+		
+			if ( ! READYCUT ) {
+			
+				alert("Please press the Tool menu and adjust the cutter first.");
+				return;
+			
+			}
+			
+			console.log("Offset (x, y, z)", xOffset, yOffset, zOffset);
+			console.log("Angle (x, y, z)", xAngle, yAngle, zAngle);
+			
+			sawGeometry.translate(xOffset, 0, 0);
+			sawGeometry.translate(0, yOffset, 0);
+			sawGeometry.translate(0, 0, zOffset);
+			
+			booleanCut();	
+		}		
+		
+		
+		function exportModel() {	// Save the finished model in .STL format
+		
+			if ( ! result ) {
+			
+				alert("Please perform cutting first.");
+				return;
+			
+			}
+		
+			var exporter = new STLExporter();
+			
+			if ( !CHANGED ) {	// Change back to buffer geometry before saving the model
+				
+				result.geometry = new THREE.BufferGeometry().fromGeometry(result.geometry);
+				CHANGED = true;
+				
+			}
+			
+			var str = exporter.parse( result, { binary: true } ); // Export the model to .stl format
+			saveArrayBuffer( str, 'model.stl' );
+		}
+		
+		const link = document.createElement( 'a' );
+		link.style.display = 'none';
+		document.body.appendChild( link );
+		
+		function save( blob, filename ) {
+		
+			link.href = URL.createObjectURL( blob );
+			link.download = filename;
+			link.click();
+		
+		}
+		
+		function saveArrayBuffer( buffer, filename ) {
+		
+			save( new Blob( [ buffer ], { type: 'application/octet-stream' } ), filename );
+		
+		}		
+		
+		
+		camera.position.z = 3.5;
+		  
+		var ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+		scene.add(ambientLight);
+
+		const spotLight = new THREE.SpotLight( 0xffffff );
+		  
+		spotLight.position.set( -1, 3, 3 );
+
+		spotLight.shadow.mapSize.width = 1024;
+		spotLight.shadow.mapSize.height = 1024;
+
+		spotLight.shadow.camera.near = 500;
+		spotLight.shadow.camera.far = 4000;
+		spotLight.shadow.camera.fov = 30;
+
+		scene.add( spotLight );
+	  
+	  
+	  var update = function()
+	  {
+		if (( result ) && ( params.animate )) {
+		
+			result.rotation.x += 0.005;
+			result.rotation.y += 0.005;
+			result.rotation.z += 0.005;
+		
+		};
+	  };
+	  
+	  // Draw scene
+	  var render = function()
+	  {
+		renderer.render( scene, camera );
+	  };
+	  
+	  // Animation loop
+	  function animate()
+	  {
+		requestAnimationFrame( animate );
+		
+		update();
+		controls.update();
+		render();
+	  };
+	  
+	  animate();
+	</script>
+  </body>
+</html>
